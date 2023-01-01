@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <title>智慧校园</title>
+
+</head>
+<link rel="stylesheet" href="https://a.amap.com/jsapi_demos/static/demo-center/css/demo-center.css" />
+<link rel="stylesheet" href="./css/index.css" />
+<script type="text/javascript">
+    window._AMapSecurityConfig = {
+        securityJsCode: 'f72550c1017d477491152cd6a077c608',
+    }
+</script>
+<script type="text/javascript" src="https://webapi.amap.com/maps?v=2.0&key=3febfb62d595973d9428eeccb0d06655"></script>
+<script type="text/javascript" src="./js/store.js"></script>
+
+<body>
+    <div id="container"></div>
+    <div class="info">
+        <div class="input-item">
+            <div class="input-item-prepend">
+                <span class="input-item-text" style="width:8rem;">请输入关键字</span>
+            </div>
+            <input id='tipinput' type="text">
+            <button class="btn" onclick="search()">搜索</button>
+        </div>
+    </div>
+    <div class="input-card" style="width: 14rem;">
+        <h4>推荐浏览路线</h4>
+        <div class="input-item">
+            <button class="btn" onclick="startAnimation()">开始动画</button>
+            <button class="btn" onclick="reset()">重置地点</button>
+        </div>
+    </div>
+
+
+
+    <script>
+        var map = new AMap.Map('container', {
+            zoom: 16,//级别
+            center: [113.939316, 22.538981],//中心点坐标
+            viewMode: '3D',//使用3D视图
+            pitch: 45,
+        });
+        // 使用控件
+        AMap.plugin(['AMap.AutoComplete', 'AMap.PlaceSearch', 'AMap.GeoJSON', 'AMap.ToolBar', 'AMap.Scale', 'AMap.ControlBar', 'AMap.MoveAnimation'], function () {
+            map.addControl(new AMap.ToolBar({
+                position: {
+                    top: '80px',
+                    right: '40px'
+                }
+            }));
+            map.addControl(new AMap.Scale());
+            map.addControl(new AMap.ControlBar());
+        });
+
+        //输入提示
+        var auto = new AMap.AutoComplete({
+            input: "tipinput"
+        });
+
+
+        //定义全局变量，保存geojson
+        var geojson = new AMap.GeoJSON({
+            geoJSON: null
+        });
+        // 如果存在数据，那么就导入数据
+        if (JSON.stringify(getData()) !== '[]') {
+            // 导入数据
+            geojson.importData(getData());
+            // 恢复旧数据的点击事件
+            geojson.eachOverlay(function (item) {
+                item.on('click', function (e) {
+                    var ext = item.getExtData();
+                    var click = ++ext._geoJsonProperties.click;
+                    // console.log(e.lnglat, '旧数据点击' + click + '次');
+                    //使用信息提示框显示
+                    var infoWindow = new AMap.InfoWindow({
+                        anchor: 'top-center',
+                        content: `<div>打卡了${click}次</div>`
+                    })
+                    // 显示（打开信息窗口）
+                    infoWindow.open(map, item.getPosition());
+                    saveData(geojson.toGeoJSON());
+                });
+            })
+        }
+
+        map.add(geojson);
+
+
+        // 监听地图的点击事件
+        map.on('click', function (e) {
+            var marker = new AMap.Marker({
+                position: e.lnglat,
+                extData: {
+                    // 设置点击后的属性变化
+                    _geoJsonProperties: {
+                        gid: geojson.getOverlays().length + 1,
+                        click: 0
+                    }
+                }
+            });
+
+            // map.add(marker);
+
+
+            marker.on('click', function (e) {
+                var ext = marker.getExtData();
+                var click = ++ext._geoJsonProperties.click;
+                // console.log(e.lnglat, '新数据点击' + click + '次');
+
+                //使用信息提示框显示
+                var infoWindow = new AMap.InfoWindow({
+                    anchor: 'top-center',
+                    content: `<div>打卡了${click}次</div>`
+                })
+                // 显示（打开信息窗口）
+                infoWindow.open(map, marker.getPosition());
+
+                saveData(geojson.toGeoJSON());
+            });
+
+
+            // 通过geojson对象来管理覆盖物
+            geojson.addOverlay(marker);
+            // console.log(geojson);
+            saveData(geojson.toGeoJSON());
+
+        });
+
+        function startAnimation() {
+            //实现路径规划
+            AMap.plugin('AMap.Driving', function () {
+                var driving = new AMap.Driving({
+                    map: map,
+                    policy: AMap.DrivingPolicy.LEAST_TIME,
+                });
+                // 设置起点和终点
+                // var start = new AMap.LngLat(114.400661, 30.520452);
+                // var end = new AMap.LngLat(114.405485, 30.522178);
+
+                var start;
+                var end;
+                var opts = {
+                    waypoints: []
+                }
+
+                var length = 0;
+                geojson.eachOverlay(function (item, index) {
+                    length++;
+                })
+
+                geojson.eachOverlay(function (item, index) {
+                    if (index === 0) {
+                        start = item.getPosition();
+                    } else if (index === length - 1) {
+                        end = item.getPosition();
+                    } else {
+                        opts.waypoints.push(item.getPosition())
+                    }
+                })
+
+
+                driving.search(start, end, opts, function (status, result) {
+                    if (status === 'complete') {
+                        console.log('ok');
+                        // 实现轨迹模拟
+
+                        var lineArr = [];
+                        result.routes[0].steps.forEach(function (step) {
+                            lineArr.push(...step.path);
+                        });
+
+                        var marker = new AMap.Marker({
+                            map: map,
+                            position: start,
+                            icon: "https://a.amap.com/jsapi_demos/static/demo-center-v2/car.png",
+                            offset: new AMap.Pixel(-13, -26),
+                            autoRotation: true,
+                            angle: -180
+                        });
+
+
+                        // 绘制轨迹
+                        var polyline = new AMap.Polyline({
+                            map: map,
+                            path: lineArr,
+                            showDir: true,
+                            strokeColor: "#28F",  //线颜色
+                            // strokeOpacity: 1,     //线透明度
+                            strokeWeight: 6,      //线宽
+                            // strokeStyle: "solid"  //线样式
+                        });
+
+
+                        marker.on('moving', function (e) {
+                            polyline.setPath(e.passedPath);
+                        });
+                        map.setFitView();
+                        marker.moveAlong(lineArr, {
+                            duration: 100,
+                            autoRotation: true
+                        })
+
+                    } else {
+                        console.log('error');
+                    }
+                })
+            })
+        }
+
+        function reset() {
+            localStorage.setItem('geojson', '[]');
+            location.reload();
+        }
+        //构造地点查询类
+        var placeSearch = new AMap.PlaceSearch({
+            pageSize: 1, // 单页显示结果条数
+            pageIndex: 1, // 页码
+            city: "0755", // 兴趣点城市
+            citylimit: true,  //是否强制限制在设置的城市内搜索
+            map: map, // 展现结果的地图实例
+            // panel: "panel", // 结果列表将在此容器中进行展示。
+            autoFitView: true // 是否自动调整地图视野使绘制的 Marker点都处于视口的可见范围
+        });
+
+        function search() {
+            //关键字查询
+            placeSearch.search(document.getElementById('tipinput').value);
+        }
+    </script>
+
+</body>
+
+</html>
